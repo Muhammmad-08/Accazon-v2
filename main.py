@@ -350,7 +350,7 @@ def show_product(call):
             f"💰 Цена: <b>{p[2]:.2f}$</b>\n"
             f"📝 Описание: {p[3]}\n"
             f"📦 В наличии: <b>{p[4]} шт.</b>\n\n"
-            f"<i>P.S. После покупки на товар есть гарантия 12 часов</i>")
+            f"<i>P.S. После покупки на товар есть гарантия 24 часа</i>")
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🛒 Заказать", callback_data=f"order_{p[0]}"))
     markup.add(types.InlineKeyboardButton("🔙 Назад", callback_data="cat_tg"))
@@ -365,18 +365,6 @@ def make_order(call):
     p = get_product(product_id)
     if not p:
         return bot.answer_callback_query(call.id, "❌ Товар не найден")
-
-    # Проверка username
-    if not call.from_user.username:
-        bot.answer_callback_query(call.id)
-        return bot.send_message(call.message.chat.id,
-            "❌ <b>Для оформления заказа необходим username!</b>\n\n"
-            "У вас нет username (@...). Пожалуйста:\n"
-            "1. Зайдите в настройки Telegram\n"
-            "2. Установите username\n"
-            "3. Вернитесь и попробуйте снова",
-            parse_mode='HTML')
-
     user = get_user(call.from_user.id)
     if not user or user[2] < p[2]:
         markup = types.InlineKeyboardMarkup()
@@ -392,55 +380,29 @@ def make_order(call):
         return bot.answer_callback_query(call.id)
 
     full_name = get_full_name(call.from_user)
-    username = call.from_user.username
+    username = call.from_user.username or "—"
     order_num = get_next_order_number()
     order_id = create_order(order_num, call.from_user.id, product_id, p[1], p[2], username, full_name)
-
-    # Кнопка "Напомнить о заказе" покупателю
-    remind_markup = types.InlineKeyboardMarkup()
-    remind_markup.add(types.InlineKeyboardButton("🔔 Напомнить о заказе", callback_data=f"remind_{order_id}"))
 
     bot.send_message(call.message.chat.id,
         f"✅ <b>Заказ #{order_num} оформлен!</b>\n\n"
         f"⏳ Ожидайте выполнения.\n"
         f"👤 Ваш заказ выполнит: @m_muhammad_o8",
-        parse_mode='HTML', reply_markup=remind_markup)
+        parse_mode='HTML', reply_markup=main_markup())
 
-    # Уведомление владельцу
-    owner_markup = types.InlineKeyboardMarkup()
-    owner_markup.add(types.InlineKeyboardButton("✅ Выполнил заказ", callback_data=f"done_{order_id}"))
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ Выполнил заказ", callback_data=f"done_{order_id}"))
     bot.send_message(OWNER_ID,
         f"🔔 <b>Новый заказ #{order_num}</b>\n\n"
         f"🌍 Страна: <b>{p[1]}</b>\n"
         f"💰 Цена: <b>{p[2]:.2f}$</b>\n"
         f"👤 Покупатель: @{username}\n"
         f"🕐 Время: {now()}",
-        parse_mode='HTML', reply_markup=owner_markup)
+        parse_mode='HTML', reply_markup=markup)
 
     log(f"📦 <b>Новый заказ #{order_num}</b>\n{user_info(call.from_user)}\n"
         f"🌍 Страна: {p[1]} | 💰 Цена: {p[2]:.2f}$\n🕐 {now()}")
     bot.answer_callback_query(call.id)
-
-# ================= НАПОМНИТЬ =================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("remind_"))
-def remind_order(call):
-    order_id = int(call.data.split("_")[1])
-    order = get_order(order_id)
-    if not order:
-        return bot.answer_callback_query(call.id, "❌ Заказ не найден")
-
-    # Отправляем напоминание владельцу
-    bot.send_message(OWNER_ID,
-        f"🔔 <b>Напоминание о заказе #{order[1]}</b>\n\n"
-        f"👤 Покупатель: @{order[6]}\n"
-        f"🌍 Страна: {order[4]} | 💰 Цена: {order[5]:.2f}$\n"
-        f"🕐 {now()}",
-        parse_mode='HTML')
-
-    # Убираем кнопку после нажатия
-    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-    bot.answer_callback_query(call.id, "✅ Напоминание отправлено!")
-    log(f"🔔 <b>Напоминание о заказе #{order[1]}</b>\n{user_info(call.from_user)}\n🕐 {now()}")
 
 # ================= ВЫПОЛНЕНИЕ =================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("done_"))
@@ -454,51 +416,18 @@ def done_order(call):
     if order[8] == 'completed':
         return bot.answer_callback_query(call.id, "✅ Уже выполнен")
     user_id = complete_order(order_id)
-
-    # Кнопки подтверждения получения
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("❌ Нет, не получил(а)", callback_data=f"notreceived_{order_id}"))
-    markup.add(types.InlineKeyboardButton("✅ Да, получил(а)", callback_data=f"received_{order_id}"))
-
+    markup.add(types.InlineKeyboardButton("✍️ Написать отзыв", callback_data=f"review_{order_id}"))
     bot.send_message(user_id,
-        f"📦 <b>Администратор подтвердил выполнение заказа #{order[1]}!</b>\n\n"
-        f"Вы получили ваш товар?",
+        f"✅ <b>Ваш заказ #{order[1]} выполнен!</b>\n\n"
+        f"Спасибо, что выбрали <b>Accazon</b>!\n"
+        f"Будем рады вашему отзыву 🙏",
         parse_mode='HTML', reply_markup=markup)
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
     bot.answer_callback_query(call.id, "✅ Заказ выполнен!")
     log(f"✅ <b>Заказ #{order[1]} выполнен</b>\n"
         f"👤 Покупатель: @{order[6]}\n"
         f"🌍 Страна: {order[4]} | 💰 Цена: {order[5]:.2f}$\n🕐 {now()}")
-
-# ================= НЕ ПОЛУЧИЛ =================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("notreceived_"))
-def not_received(call):
-    order_id = call.data.split("_")[1]
-    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-    bot.send_message(call.message.chat.id,
-        f"😔 <b>Приносим извинения!</b>\n\n"
-        f"Пожалуйста, свяжитесь с нами для решения вопроса:\n"
-        f"👤 @m_muhammad_o8",
-        parse_mode='HTML', reply_markup=main_markup())
-    bot.answer_callback_query(call.id)
-    log(f"❌ <b>Покупатель не получил товар по заказу #{order_id}</b>\n{user_info(call.from_user)}\n🕐 {now()}")
-
-# ================= ПОЛУЧИЛ =================
-@bot.callback_query_handler(func=lambda c: c.data.startswith("received_"))
-def received(call):
-    order_id = call.data.split("_")[1]
-    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("✍️ Оставить отзыв", callback_data=f"review_{order_id}"))
-
-    bot.send_message(call.message.chat.id,
-        f"🎉 <b>Спасибо за покупку!</b>\n\n"
-        f"Рады, что всё прошло хорошо!\n"
-        f"Будем благодарны за ваш отзыв 🙏",
-        parse_mode='HTML', reply_markup=markup)
-    bot.answer_callback_query(call.id)
-    log(f"✅ <b>Покупатель подтвердил получение заказа #{order_id}</b>\n{user_info(call.from_user)}\n🕐 {now()}")
 
 # ================= ОТЗЫВ =================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("review_"))
@@ -695,25 +624,8 @@ def check_payment(call):
     else:
         bot.answer_callback_query(call.id, "⏳ Оплата ещё не поступила. Попробуйте через минуту.")
 
-# ================= ВЕБ-СЕРВЕР ДЛЯ RENDER =================
-from threading import Thread
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-class PingHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def log_message(self, format, *args):
-        pass
-
-def run_server():
-    server = HTTPServer(("0.0.0.0", 8080), PingHandler)
-    server.serve_forever()
-
 # ================= ЗАПУСК =================
 if __name__ == "__main__":
     set_bot_commands()
-    Thread(target=run_server, daemon=True).start()
     print("✅ Бот успешно запущен!")
     bot.infinity_polling()
